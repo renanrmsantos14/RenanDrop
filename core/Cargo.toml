@@ -1,0 +1,32 @@
+[package]
+name = "renandrop-core"
+version = "0.0.0"
+edition = "2021"
+description = "Protocolo, descoberta, pareamento e transferência do RenanDrop"
+license = "MIT"
+publish = false
+
+[lib]
+name = "renandrop_core"
+
+[[bin]]
+name = "renandrop-cli"
+path = "src/bin/cli.rs"
+
+[dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdh"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+mdns-sd = "0.13"
+hex = "0.4"
+log = "0.4"
+anyhow = "1"
+subtle = "2"
+
+[dev-dependencies]
+tempfile = "3"
