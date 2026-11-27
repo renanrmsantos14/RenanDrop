@@ -43,3 +43,4 @@ Thumbs.db
 
 # gerado pelo tauri-build
 app/gen/
+.verificacao/

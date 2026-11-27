@@ -1,6 +1,6 @@
 [package]
 name = "renandrop"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "RenanDrop: envio de arquivos entre seus aparelhos pela rede local ou pelo Tailscale"
 license = "MIT"
