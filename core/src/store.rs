@@ -26,6 +26,8 @@ pub struct Settings {
     pub theme: String,
     /// Procurar aparelhos também pela tailnet do Tailscale (se estiver instalado).
     pub tailscale: bool,
+    /// Procurar atualizações do app ao iniciar e a cada 6 h.
+    pub auto_update: bool,
     /// Endereços adicionados à mão (IP ou nome MagicDNS), sondados em segundo plano.
     pub remotes: Vec<String>,
 }
@@ -42,6 +44,7 @@ impl Default for Settings {
             notifications: true,
             theme: "auto".into(),
             tailscale: true,
+            auto_update: true,
             remotes: Vec::new(),
         }
     }

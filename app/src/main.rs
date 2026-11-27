@@ -3,6 +3,7 @@
 
 mod control;
 mod integration;
+mod updater;
 
 use renandrop_core::engine::Event;
 use renandrop_core::store::{default_profile_dir, HistoryEntry, Settings};
@@ -39,6 +40,17 @@ struct App {
     /// Último estado de arrastar enviado à janela; evita um evento por movimento do mouse.
     dragging: AtomicBool,
     exe: PathBuf,
+    /// Argumentos com que este processo foi aberto (para reabrir igual depois de atualizar).
+    argv: Vec<String>,
+    /// `None` em plataforma sem binário no release.
+    update_cfg: Option<updater::Cfg>,
+    update: Mutex<UpdateSt>,
+}
+
+#[derive(Default)]
+struct UpdateSt {
+    state: updater::State,
+    found: Option<renandrop_core::updater::Update>,
 }
 
 #[derive(Default)]
@@ -50,6 +62,7 @@ struct Args {
     ctrl_port: Option<u16>,
     discovery_off: bool,
     hidden: bool,
+    relaunch: bool,
     no_integration: bool,
     send: Vec<String>,
 }
@@ -66,6 +79,7 @@ fn parse_args() -> Args {
             "--ctrl-port" => a.ctrl_port = it.next().and_then(|v| v.parse().ok()),
             "--no-discovery" => a.discovery_off = true,
             "--hidden" => a.hidden = true,
+            "--relaunch" => a.relaunch = true,
             "--no-integration" => a.no_integration = true,
             // Tudo depois de --send são caminhos (o Nemo entrega vários de uma vez).
             "--send" => {
@@ -88,6 +102,7 @@ struct Snapshot {
     tailscale: String,
     pending: Vec<Event>,
     version: Value,
+    update: updater::State,
 }
 
 type St<'a> = State<'a, App>;
@@ -109,6 +124,7 @@ fn snapshot(st: St) -> Snapshot {
         tailscale: e.tailscale_state(),
         pending: st.pending.lock().unwrap().clone(),
         version: version(),
+        update: st.update.lock().unwrap().state.clone(),
     }
 }
 
@@ -244,9 +260,148 @@ fn update_settings(st: St, patch: Value) -> Res<Settings> {
             if let Some(v) = flag("tailscale") {
                 s.tailscale = v;
             }
+            if let Some(v) = flag("auto_update") {
+                s.auto_update = v;
+            }
         })
         .map_err(err)?;
     Ok(s)
+}
+
+fn current_version() -> String {
+    version()["version"].as_str().unwrap_or("0.0.0").to_string()
+}
+
+fn set_update_state(
+    app: &AppHandle,
+    state: updater::State,
+    found: Option<renandrop_core::updater::Update>,
+) {
+    let st = app.state::<App>();
+    {
+        let mut u = st.update.lock().unwrap();
+        u.state = state.clone();
+        u.found = found;
+    }
+    if app.get_webview_window("main").is_some() {
+        let _ = app.emit("rd", serde_json::json!({"type":"update","update":state}));
+    }
+}
+
+/// Registra a falha na tela de configurações e devolve a mensagem.
+fn update_failed(app: &AppHandle, message: String) -> String {
+    set_update_state(
+        app,
+        updater::State::Error {
+            message: message.clone(),
+        },
+        None,
+    );
+    message
+}
+
+/// Consulta o GitHub e guarda o resultado. Não mexe se uma instalação está em andamento.
+fn run_update_check(app: &AppHandle) -> updater::State {
+    let st = app.state::<App>();
+    let Some(cfg) = st.update_cfg.clone() else {
+        let message = "Atualização automática indisponível nesta plataforma.".to_string();
+        return updater::State::Error {
+            message: update_failed(app, message),
+        };
+    };
+    {
+        let mut u = st.update.lock().unwrap();
+        if matches!(
+            u.state,
+            updater::State::Installing | updater::State::Checking
+        ) {
+            return u.state.clone();
+        }
+        // Dentro do lock: duas verificações não passam juntas.
+        u.state = updater::State::Checking;
+    }
+    set_update_state(app, updater::State::Checking, None);
+    let (state, found) = match updater::check(&cfg) {
+        Ok(Some(u)) => (
+            updater::State::Available {
+                version: u.version.clone(),
+            },
+            Some(u),
+        ),
+        Ok(None) => (updater::State::UpToDate, None),
+        Err(e) => {
+            log::warn!("atualização: {e:#}");
+            (
+                updater::State::Error {
+                    message: format!("Não foi possível verificar: {e}"),
+                },
+                None,
+            )
+        }
+    };
+    set_update_state(app, state.clone(), found);
+    state
+}
+
+#[tauri::command(async)]
+fn check_update(app: AppHandle) -> updater::State {
+    run_update_check(&app)
+}
+
+/// Baixa, confere a assinatura, troca o executável e reabre o app. Em qualquer falha nada é instalado.
+#[tauri::command(async)]
+fn install_update(app: AppHandle) -> Res<()> {
+    let st = app.state::<App>();
+    let (cfg, found) = {
+        let mut u = st.update.lock().unwrap();
+        let Some(found) = u.found.clone() else {
+            return Err("Nenhuma atualização para instalar. Procure de novo.".into());
+        };
+        if matches!(u.state, updater::State::Installing) {
+            return Err("A instalação já está em andamento.".into());
+        }
+        if matches!(u.state, updater::State::Checking) {
+            return Err("Procurando atualização; tente de novo em instantes.".into());
+        }
+        u.state = updater::State::Installing;
+        (
+            st.update_cfg.clone().ok_or("Atualização indisponível.")?,
+            found,
+        )
+    };
+    set_update_state(&app, updater::State::Installing, Some(found.clone()));
+    if let Err(e) = updater::install(&cfg, &found, &st.exe) {
+        log::warn!("atualização descartada: {e:#}");
+        return Err(update_failed(
+            &app,
+            format!("Atualização não instalada: {e}"),
+        ));
+    }
+    let hidden = app.get_webview_window("main").is_none();
+    if let Err(e) = updater::relaunch(&st.exe, &st.argv, hidden) {
+        return Err(update_failed(
+            &app,
+            format!(
+                "Atualizado para a versão {}; abra o RenanDrop de novo ({e}).",
+                found.version
+            ),
+        ));
+    }
+    quit_app(&app);
+    Ok(())
+}
+
+/// Procura ao iniciar (com o app já de pé) e a cada 6 h, se a opção estiver ligada.
+fn spawn_update_checker(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        loop {
+            if app.state::<App>().engine.settings().auto_update {
+                run_update_check(&app);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+        }
+    });
 }
 
 #[tauri::command]
@@ -436,6 +591,11 @@ fn main() {
     let profile = args.profile.clone().unwrap_or_else(default_profile_dir);
     let exe = std::env::current_exe().unwrap_or_default();
     let ctrl_port = args.ctrl_port.unwrap_or(control::DEFAULT_PORT);
+    updater::cleanup_old(&exe);
+    if args.relaunch {
+        // Veio de uma atualização: o processo anterior ainda está saindo e segura a porta.
+        control::wait_free(ctrl_port, std::time::Duration::from_secs(15));
+    }
 
     // Sem token gravado o canal de controle fica desligado: token vazio aceitaria qualquer processo.
     let token = control::token(&profile).ok();
@@ -492,6 +652,9 @@ fn main() {
             notified: Mutex::new(HashSet::new()),
             dragging: AtomicBool::new(false),
             exe,
+            argv: std::env::args().skip(1).collect(),
+            update_cfg: updater::Cfg::production(&current_version()),
+            update: Mutex::new(UpdateSt::default()),
         })
         .invoke_handler(tauri::generate_handler![
             snapshot,
@@ -511,6 +674,8 @@ fn main() {
             clear_history,
             rescan,
             update_settings,
+            check_update,
+            install_update,
             pick_paths,
             pick_recv_dir,
             open_path,
@@ -531,6 +696,7 @@ fn main() {
                 let h = h.clone();
                 control::serve(l, token, move |m| stage(&h, m.paths));
             }
+            spawn_update_checker(h.clone());
             if let Err(e) = build_tray(app.handle()) {
                 log::warn!("bandeja indisponível: {e}");
             }

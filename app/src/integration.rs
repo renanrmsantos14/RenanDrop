@@ -6,12 +6,12 @@ use std::path::Path;
 use std::process::Command;
 
 #[cfg(windows)]
-fn sem_janela(c: &mut Command) -> &mut Command {
+pub(crate) fn sem_janela(c: &mut Command) -> &mut Command {
     use std::os::windows::process::CommandExt;
     c.creation_flags(0x0800_0000)
 }
 #[cfg(not(windows))]
-fn sem_janela(c: &mut Command) -> &mut Command {
+pub(crate) fn sem_janela(c: &mut Command) -> &mut Command {
     c
 }
 
