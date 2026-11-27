@@ -266,6 +266,8 @@ function renderPeers() {
   const s = S.snap;
   const paired = s.peers.filter((p) => p.paired);
   const found = s.peers.filter((p) => !p.paired);
+  const typed = document.getElementById("add-input");
+  const keep = typed ? { value: typed.value, focus: document.activeElement === typed } : null;
   const input = h("input", { class: "input", id: "add-input", placeholder: "Nome ou IP (ex.: casa-pc ou 100.64.0.5)", "aria-label": "Nome ou IP do aparelho", autocomplete: "off", spellcheck: "false" });
   const add = async () => {
     const text = input.value.trim();
@@ -274,6 +276,7 @@ function renderPeers() {
     if (p) { input.value = ""; toast(`${p.name} encontrado`); refreshPeers(); }
   };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") add(); });
+  if (keep) input.value = keep.value;
   fill(box,
     h("p", { class: "hint", text: TAILSCALE[s.tailscale] || "" }),
     h("div", { class: "section-title" }, h("span", { text: "Pareados" })),
@@ -282,6 +285,7 @@ function renderPeers() {
     h("div", { class: "section-title" }, h("span", { text: "Adicionar por nome ou IP" })),
     h("div", { class: "add" }, input, h("button", { class: "btn", text: "Adicionar", onclick: add })),
     h("p", { class: "hint", text: "Para aparelhos fora da rede local, use o nome do Tailscale ou o IP 100.x." }));
+  if (keep?.focus) input.focus();
 }
 
 function transferRow(t) {
@@ -450,6 +454,7 @@ function drawDrawer() {
   const dr = $("drawer");
   $("overlay").hidden = dr.hidden = !d;
   if (!d) return;
+  const typing = (k) => (e) => { d.draft[k] = k === "lanes" ? +e.target.value : e.target.value; $("save-btn").disabled = !dirty(); };
   const set = (k, v) => { d.draft[k] = v; if (k === "theme") applyTheme(v); drawDrawer(); };
   const sw = (k, label, hint) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: !!d.draft[k], disabled: d.saving, onchange: (e) => set(k, e.target.checked) }),
@@ -460,10 +465,10 @@ function drawDrawer() {
       h("button", { class: "icon-btn", "aria-label": "Fechar", text: "✕", onclick: requestCloseSettings })),
     h("div", { class: "drawer-body" },
       h("div", { class: "field" }, h("label", { for: "f-name", text: "Nome deste aparelho" }),
-        h("input", { class: "input", id: "f-name", value: d.draft.device_name, disabled: d.saving, oninput: (e) => { d.draft.device_name = e.target.value; } })),
+        h("input", { class: "input", id: "f-name", value: d.draft.device_name, disabled: d.saving, oninput: typing("device_name") })),
       h("div", { class: "field" }, h("label", { for: "f-dir", text: "Pasta de recebimento" }),
         h("div", { class: "path-row" },
-          h("input", { class: "input", id: "f-dir", value: d.draft.recv_dir, disabled: d.saving, oninput: (e) => { d.draft.recv_dir = e.target.value; } }),
+          h("input", { class: "input", id: "f-dir", value: d.draft.recv_dir, disabled: d.saving, oninput: typing("recv_dir") }),
           h("button", { class: "btn", text: "Escolher", disabled: d.saving, onclick: async () => { const p = await call("pick_recv_dir"); if (p) set("recv_dir", p); } }))),
       h("div", { class: "field" }, h("span", { class: "label", text: "Tema" }),
         h("div", { class: "seg", role: "group", "aria-label": "Tema" }, [["auto", "Automático"], ["light", "Claro"], ["dark", "Escuro"]].map(([v, l]) =>
@@ -472,8 +477,8 @@ function drawDrawer() {
       sw("notifications", "Mostrar notificações"),
       sw("autostart", "Iniciar com o sistema", "Fica na bandeja, pronto para receber."),
       sw("tailscale", "Procurar aparelhos pelo Tailscale", "Só usado se o Tailscale estiver instalado e conectado."),
-      h("div", { class: "field" }, h("label", { for: "f-lanes", text: `Conexões paralelas por envio: ${d.draft.lanes}` }),
-        h("input", { id: "f-lanes", type: "range", min: "1", max: "8", value: String(d.draft.lanes), disabled: d.saving, oninput: (e) => { d.draft.lanes = +e.target.value; e.target.previousSibling.textContent = `Conexões paralelas por envio: ${d.draft.lanes}`; } }),
+      h("div", { class: "field" }, h("label", { id: "lanes-label", for: "f-lanes", text: `Conexões paralelas por envio: ${d.draft.lanes}` }),
+        h("input", { id: "f-lanes", type: "range", min: "1", max: "8", value: String(d.draft.lanes), disabled: d.saving, oninput: (e) => { typing("lanes")(e); $("lanes-label").textContent = `Conexões paralelas por envio: ${d.draft.lanes}`; } }),
         h("p", { class: "hint", text: "Mais conexões aproveitam melhor a rede; 4 serve para a maioria." })),
       h("div", { class: "field" }, h("span", { class: "label", text: "Atualizações" }),
         h("p", { class: "hint", text: "O app procura versões novas no GitHub ao iniciar." })),
@@ -482,7 +487,7 @@ function drawDrawer() {
         h("p", { class: "hint", text: "Fechar a janela só a esconde; o app continua recebendo pela bandeja." }))),
     h("div", { class: "drawer-foot" },
       h("button", { class: "btn", text: "Cancelar", disabled: d.saving, onclick: requestCloseSettings }),
-      h("button", { class: "btn primary", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || !dirty(), onclick: saveSettings })));
+      h("button", { class: "btn primary", id: "save-btn", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || !dirty(), onclick: saveSettings })));
   if (focused) document.getElementById(focused)?.focus();
 }
 $("overlay").addEventListener("mousedown", requestCloseSettings);

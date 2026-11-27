@@ -37,8 +37,7 @@ pub fn install_context_menu(exe: &Path) -> Result<()> {
         std::fs::create_dir_all(&dir)?;
         // %F entrega os caminhos selecionados; Quote=double protege espaços.
         let texto = format!(
-            "[Nemo Action]\nName=Enviar com RenanDrop\nName[pt_BR]=Enviar com RenanDrop\n\
-             Comment=Enviar para outro aparelho pareado\nExec=\"{}\" --send %F\n\
+            "[Nemo Action]\nName=Enviar com RenanDrop\nComment=Enviar para outro aparelho pareado\nExec=\"{}\" --send %F\n\
              Icon-Name=document-send\nSelection=any\nExtensions=any;\nQuote=double\n",
             exe.display()
         );

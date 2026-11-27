@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -22,6 +23,12 @@ use tauri_plugin_dialog::DialogExt;
 
 const VERSION_JSON: &str = include_str!("../version.json");
 
+fn version() -> Value {
+    static V: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    V.get_or_init(|| serde_json::from_str(VERSION_JSON).unwrap_or_default())
+        .clone()
+}
+
 struct App {
     engine: Engine,
     /// Pedidos de pareamento e ofertas que ainda esperam resposta da pessoa.
@@ -29,6 +36,8 @@ struct App {
     /// Arquivos vindos do menu de contexto, esperando a escolha dos destinos.
     staged: Mutex<Vec<String>>,
     notified: Mutex<HashSet<String>>,
+    /// Último estado de arrastar enviado à janela; evita um evento por movimento do mouse.
+    dragging: AtomicBool,
     exe: PathBuf,
 }
 
@@ -99,7 +108,7 @@ fn snapshot(st: St) -> Snapshot {
         history: e.history(),
         tailscale: e.tailscale_state(),
         pending: st.pending.lock().unwrap().clone(),
-        version: serde_json::from_str(VERSION_JSON).unwrap_or_default(),
+        version: version(),
     }
 }
 
@@ -272,10 +281,14 @@ fn reveal_path(path: String) {
     integration::reveal(&PathBuf::from(path));
 }
 
-#[tauri::command]
-fn quit(app: AppHandle, st: St) {
-    st.engine.shutdown();
+fn quit_app(app: &AppHandle) {
+    app.state::<App>().engine.shutdown();
     app.exit(0);
+}
+
+#[tauri::command]
+fn quit(app: AppHandle) {
+    quit_app(&app);
 }
 
 /// Abre a janela (ou traz a que já existe). A janela é criada sob demanda e destruída ao fechar:
@@ -298,17 +311,23 @@ fn show_window(app: &AppHandle) {
             let a = app.clone();
             w.on_window_event(move |e| {
                 if let WindowEvent::DragDrop(d) = e {
-                    let ev = match d {
+                    let (over, ev) = match d {
                         DragDropEvent::Enter { .. } | DragDropEvent::Over { .. } => {
-                            serde_json::json!({"type":"drag","over":true})
+                            (true, serde_json::json!({"type":"drag","over":true}))
                         }
-                        DragDropEvent::Leave => serde_json::json!({"type":"drag","over":false}),
+                        DragDropEvent::Leave => {
+                            (false, serde_json::json!({"type":"drag","over":false}))
+                        }
                         DragDropEvent::Drop { paths, .. } => {
-                            serde_json::json!({"type":"drop","paths":paths})
+                            (false, serde_json::json!({"type":"drop","paths":paths}))
                         }
                         _ => return,
                     };
-                    let _ = a.emit("rd", ev);
+                    let st = a.state::<App>();
+                    let is_drop = ev["type"] == "drop";
+                    if st.dragging.swap(over, Ordering::Relaxed) != over || is_drop {
+                        let _ = a.emit("rd", ev);
+                    }
                 }
             });
         }
@@ -318,9 +337,8 @@ fn show_window(app: &AppHandle) {
 
 fn stage(app: &AppHandle, paths: Vec<String>) {
     if !paths.is_empty() {
-        let st = app.state::<App>();
-        st.staged.lock().unwrap().extend(paths.clone());
-        let _ = app.emit("rd", serde_json::json!({"type":"staged","paths":paths}));
+        app.state::<App>().staged.lock().unwrap().extend(paths);
+        let _ = app.emit("rd", serde_json::json!({"type":"staged"}));
     }
     show_window(app);
 }
@@ -387,7 +405,10 @@ fn on_event(app: &AppHandle, ev: Event) {
         Event::Transfer(t) if t.finished => notify(app, t),
         _ => {}
     }
-    let _ = app.emit("rd", &ev);
+    // Com a janela fechada (estado normal do app) ninguém escuta: não serializa à toa.
+    if app.get_webview_window("main").is_some() {
+        let _ = app.emit("rd", &ev);
+    }
 }
 
 fn main() {
@@ -412,8 +433,8 @@ fn main() {
     let (engine, rx) = match Engine::start(EngineOptions {
         profile,
         port: args.port,
-        name: args.name.clone(),
-        recv_dir: args.recv.clone(),
+        name: args.name,
+        recv_dir: args.recv,
         discovery: !args.discovery_off,
     }) {
         Ok(v) => v,
@@ -423,20 +444,20 @@ fn main() {
         }
     };
 
-    let settings = engine.settings();
+    let autostart = engine.settings().autostart;
     if !args.no_integration {
         let exe = exe.clone();
         std::thread::spawn(move || {
             if let Err(e) = integration::install_context_menu(&exe) {
                 log::warn!("menu de contexto: {e}");
             }
-            if let Err(e) = integration::set_autostart(&exe, settings.autostart) {
+            if let Err(e) = integration::set_autostart(&exe, autostart) {
                 log::warn!("início com o sistema: {e}");
             }
         });
     }
 
-    let start_paths = args.send.clone();
+    let start_paths = args.send;
     let hidden = args.hidden && start_paths.is_empty();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -445,6 +466,7 @@ fn main() {
             pending: Mutex::new(Vec::new()),
             staged: Mutex::new(Vec::new()),
             notified: Mutex::new(HashSet::new()),
+            dragging: AtomicBool::new(false),
             exe,
         })
         .invoke_handler(tauri::generate_handler![
@@ -532,10 +554,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = std::fs::create_dir_all(&dir);
                 integration::open(&dir);
             }
-            "quit" => {
-                app.state::<App>().engine.shutdown();
-                app.exit(0);
-            }
+            "quit" => quit_app(app),
             _ => {}
         })
         .build(app)?;
