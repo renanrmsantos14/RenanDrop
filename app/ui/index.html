@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RenanDrop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand">
+      <img src="logo.png" alt="" width="28" height="28">
+      <div class="brand-text">
+        <h1>RenanDrop</h1>
+        <p id="me" class="muted"></p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="btn-rescan" title="Procurar aparelhos de novo" aria-label="Procurar aparelhos de novo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-settings" title="Configurações" aria-label="Configurações">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="stage" id="stage" hidden aria-label="Itens para enviar"></section>
+
+  <div class="drop" id="drop">
+    <div class="drop-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+    </div>
+    <p class="drop-title">Solte arquivos ou pastas aqui</p>
+    <p class="muted">ou escolha pelo botão</p>
+    <div class="drop-actions">
+      <button class="btn" id="pick-files">Arquivos</button>
+      <button class="btn" id="pick-folder">Pasta</button>
+    </div>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Seções">
+    <button role="tab" id="tab-peers" aria-selected="true" data-tab="peers">Aparelhos</button>
+    <button role="tab" id="tab-queue" aria-selected="false" data-tab="queue">Transferências <span class="badge" id="queue-badge" hidden></span></button>
+    <button role="tab" id="tab-history" aria-selected="false" data-tab="history">Histórico</button>
+  </nav>
+
+  <main class="panels">
+    <section id="panel-peers" role="tabpanel" aria-labelledby="tab-peers"></section>
+    <section id="panel-queue" role="tabpanel" aria-labelledby="tab-queue" hidden></section>
+    <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden></section>
+  </main>
+</div>
+
+<div class="overlay" id="overlay" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title"></aside>
+<div class="modal-host" id="modal-host" hidden></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="build-version" id="build-version" aria-hidden="true"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -2,13 +2,14 @@
 
 - **Nível:** feature grande (nível 2), entregue em PRs incrementais
 - **Branch:** `feature/app-completo`
-- **Etapa:** 1 de 4: núcleo/protocolo (em revisão antes do PR)
+- **Etapa:** 2 de 4: app do PC (PR 2 em preparação; PR 1 do núcleo aberto)
+- **Próximo passo:** abrir o PR 2 · **sozinho**; depois bloco 3 (Android) · **sozinho**
 
 ## Blocos
 | # | Bloco | Estado |
 |---|---|---|
-| 1 | Núcleo e protocolo (cripto, pareamento, transferência, retomada, mDNS, Tailscale, CLI, testes) | código e testes prontos; PR pendente |
-| 2 | PC: Tauri 2, bandeja, janela, aparelhos, fila, Nemo/Explorer, autostart, tema, versão | não iniciado |
+| 1 | Núcleo e protocolo (cripto, pareamento, transferência, retomada, mDNS, Tailscale, CLI, testes) | PR #1 aberto |
+| 2 | PC: Tauri 2, bandeja, janela, aparelhos, fila, Nemo/Explorer, autostart, tema, versão | código pronto e provado no Linux; Windows não compilado (falta `llvm-rc`) |
 | 3 | Android: Kotlin nativo, compartilhar, tile, serviço, APK debug | não iniciado |
 | 4 | Release: `release.yml` só `workflow_dispatch`, autoupdate ed25519, instaladores | não iniciado |
 
@@ -23,3 +24,10 @@
 - RAM parada de um nó: 3,2 MB (RSS), pico 4–5 MB durante envio (duas instâncias do CLI).
 - Teste real com duas instâncias: pareamento, arquivo de 200 MB e pasta (212 MB, 3 arquivos), hash igual, rota `local`.
 - Windows: só `cargo check` do núcleo, se o alvo existir. Android: ainda não.
+
+## Provas do bloco 2 (Linux, duas instâncias sob Xvfb)
+- Pareamento pela UI (código de 6 dígitos), envio por `--send` e por seleção, 302 MB com hash igual a 91–114 MB/s (loopback, release, máquina carregada; gigabit real não provado).
+- RAM parada (janela fechada, só motor e bandeja): PSS ~37–52 MB, USS ~24 MB. RSS ~91 MB sob Xvfb com Mesa llvmpipe; a meta de 50 MB só vale em PSS/USS.
+- Ação do Nemo e `.desktop` de autostart gerados. Versão exibida `vX.Y.Z · dd/mm/aaaa HH:mm` em todas as telas.
+- Qualidade: 2 passadas de simplificação + karpathy-coder + code-review high (9 correções aplicadas).
+- Não provado: build do app no Windows (toolchain sem `llvm-rc`), Explorer real, Nemo em sessão real, "Mostrar na pasta" real.
