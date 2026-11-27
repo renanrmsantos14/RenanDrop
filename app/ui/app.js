@@ -72,6 +72,13 @@ async function call(cmd, args) {
     return undefined;
   }
 }
+/** Reconstrói um container mantendo o foco no mesmo controle (por posição). */
+function keepFocus(box, redraw) {
+  const items = () => [...box.querySelectorAll("input, button, select")];
+  const idx = box.contains(document.activeElement) ? items().indexOf(document.activeElement) : -1;
+  redraw();
+  if (idx >= 0) items()[idx]?.focus();
+}
 const raf = (() => {
   let q = new Set(), on = false;
   return (fn) => {
@@ -133,6 +140,7 @@ listen("rd", ({ payload: ev }) => {
     case "transfer": {
       const wasFinished = S.snap.transfers.find((x) => x.id === ev.id)?.finished;
       upsertTransfer(ev);
+      if (ev.dir === "recv" && ev.state !== "waiting") closeModal("offer-" + ev.id);
       raf(renderQueue);
       if (ev.finished && !wasFinished) refreshHistory();
       break;
@@ -182,6 +190,9 @@ function renderAll() {
 
 function renderStage() {
   const box = $("stage");
+  keepFocus(box, () => drawStage(box));
+}
+function drawStage(box) {
   box.replaceChildren();
   box.hidden = !S.staged.length;
   if (!S.staged.length) return;
@@ -294,7 +305,7 @@ function transferRow(t) {
   ];
   const btns = [];
   if (active) btns.push(h("button", { class: "btn small", text: "Cancelar", onclick: () => call("cancel", { id: t.id }) }));
-  if (t.finished && t.dir === "send" && t.state !== "done") btns.push(h("button", { class: "btn small", text: "Tentar de novo", onclick: () => call("retry", { id: t.id }) }));
+  if (t.finished && t.dir === "send" && t.state !== "done") btns.push(h("button", { class: "btn small", text: "Tentar de novo", onclick: async () => { if ((await call("retry", { id: t.id })) !== undefined) { S.snap.transfers = S.snap.transfers.filter((x) => x.id !== t.id); renderQueue(); } } }));
   if (t.finished && t.dir === "recv" && t.state === "done" && t.path) {
     btns.push(h("button", { class: "btn small", text: "Abrir", onclick: () => call("open_path", { path: t.path }) }),
       h("button", { class: "btn small", text: "Mostrar na pasta", onclick: () => call("reveal_path", { path: t.path }) }));
@@ -308,7 +319,17 @@ function transferRow(t) {
     btns.length ? h("div", { class: "t-actions" }, btns) : null);
 }
 
+// Com o botão do mouse apertado sobre a fila, adia o redesenho: trocar o botão entre o
+// mousedown e o mouseup faria o clique se perder (o progresso redesenha a cada 250 ms).
+let queueHeld = false, queueLate = false;
+document.addEventListener("mousedown", (e) => { queueHeld = !!e.target.closest?.("#panel-queue"); }, true);
+document.addEventListener("mouseup", () => {
+  queueHeld = false;
+  if (queueLate) { queueLate = false; setTimeout(() => S.snap && renderQueue(), 0); }
+}, true);
+
 function renderQueue() {
+  if (queueHeld) { queueLate = true; return; }
   const list = [...S.snap.transfers].sort((a, b) => Number(a.finished) - Number(b.finished) || b.started - a.started);
   const active = list.filter((t) => !t.finished).length;
   const badge = $("queue-badge");
@@ -453,7 +474,8 @@ function drawDrawer() {
   const sw = (k, label, hint) => h("label", { class: "switch" },
     h("input", { type: "checkbox", checked: !!d.draft[k], disabled: d.saving, onchange: (e) => set(k, e.target.checked) }),
     h("span", {}, h("span", { text: label }), hint ? h("div", { class: "hint", text: hint }) : null));
-  const focused = document.activeElement?.id;
+  const items = () => [...dr.querySelectorAll("input, button")];
+  const focusIdx = dr.contains(document.activeElement) ? items().indexOf(document.activeElement) : -1;
   dr.replaceChildren(
     h("div", { class: "drawer-head" }, h("h2", { id: "drawer-title", text: "Configurações" }),
       h("button", { class: "icon-btn", "aria-label": "Fechar", text: "✕", onclick: requestCloseSettings })),
@@ -480,7 +502,7 @@ function drawDrawer() {
     h("div", { class: "drawer-foot" },
       h("button", { class: "btn", text: "Cancelar", disabled: d.saving, onclick: requestCloseSettings }),
       h("button", { class: "btn primary", id: "save-btn", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || !dirty(), onclick: saveSettings })));
-  if (focused) $(focused)?.focus();
+  if (focusIdx >= 0) items()[focusIdx]?.focus();
 }
 $("overlay").addEventListener("mousedown", requestCloseSettings);
 

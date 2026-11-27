@@ -38,7 +38,7 @@ pub fn install_context_menu(exe: &Path) -> Result<()> {
         // %F entrega os caminhos selecionados; Quote=double protege espaços.
         let texto = format!(
             "[Nemo Action]\nName=Enviar com RenanDrop\nComment=Enviar para outro aparelho pareado\nExec=\"{}\" --send %F\n\
-             Icon-Name=document-send\nSelection=any\nExtensions=any;\nQuote=double\n",
+             Icon-Name=document-send\nSelection=any\nExtensions=any;dir;\nQuote=double\n",
             exe.display()
         );
         write_if_changed(&dir.join("renandrop.nemo_action"), &texto)
@@ -135,8 +135,11 @@ pub fn open(path: &Path) {
 pub fn reveal(path: &Path) {
     #[cfg(windows)]
     {
-        let _ =
-            sem_janela(Command::new("explorer").arg(format!("/select,{}", path.display()))).spawn();
+        use std::os::windows::process::CommandExt;
+        // O explorer exige /select,"caminho" com as aspas coladas; arg() as poria em volta de tudo.
+        let mut c = Command::new("explorer");
+        c.raw_arg(format!("/select,\"{}\"", path.display()));
+        let _ = sem_janela(&mut c).spawn();
     }
     #[cfg(not(windows))]
     {

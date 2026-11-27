@@ -118,7 +118,7 @@ fn take_staged(st: St) -> Vec<String> {
     std::mem::take(&mut *st.staged.lock().unwrap())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn send(st: St, peer_ids: Vec<String>, paths: Vec<String>) -> Res<Vec<String>> {
     let paths = paths.into_iter().map(PathBuf::from).collect();
     st.engine.send(&peer_ids, paths).map_err(err)
@@ -129,7 +129,7 @@ fn pair(st: St, peer_id: String) -> Res<()> {
     st.engine.pair(&peer_id).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn add_remote(st: St, text: String) -> Res<PeerView> {
     st.engine.add_remote(&text).map_err(err)
 }
@@ -177,7 +177,7 @@ fn cancel(st: St, id: String) {
     st.engine.cancel(&id);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn retry(st: St, id: String) -> Res<()> {
     st.engine.retry(&id).map_err(err)
 }
@@ -197,9 +197,15 @@ fn rescan(st: St) {
     st.engine.rescan();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn update_settings(st: St, patch: Value) -> Res<Settings> {
     let old = st.engine.settings().autostart;
+    // Aplica no sistema antes de gravar: se falhar, a configuração não fica dizendo o contrário.
+    if let Some(v) = patch.get("autostart").and_then(Value::as_bool) {
+        if v != old {
+            integration::set_autostart(&st.exe, v).map_err(err)?;
+        }
+    }
     let text = |k: &str| {
         patch
             .get(k)
@@ -240,9 +246,6 @@ fn update_settings(st: St, patch: Value) -> Res<Settings> {
             }
         })
         .map_err(err)?;
-    if s.autostart != old {
-        integration::set_autostart(&st.exe, s.autostart).map_err(err)?;
-    }
     Ok(s)
 }
 
@@ -345,7 +348,14 @@ fn stage(app: &AppHandle, paths: Vec<String>) {
 fn notify(app: &AppHandle, t: &TransferView) {
     let st = app.state::<App>();
     let s = st.engine.settings();
-    if !s.notifications || !t.finished || !st.notified.lock().unwrap().insert(t.id.clone()) {
+    if !s.notifications
+        || !t.finished
+        || !st
+            .notified
+            .lock()
+            .unwrap()
+            .insert(format!("{}:{}", t.id, t.state))
+    {
         return;
     }
     let recv = t.dir == "recv";
@@ -401,7 +411,18 @@ fn on_event(app: &AppHandle, ev: Event) {
             .lock()
             .unwrap()
             .retain(|e| !matches!(e, Event::PairPrompt { .. })),
-        Event::Transfer(t) if t.finished => notify(app, t),
+        Event::Transfer(t) => {
+            // A oferta de recebimento perdeu o sentido (aceita, recusada, expirou ou o remetente saiu).
+            if t.dir == "recv" && t.state != "waiting" {
+                st.pending
+                    .lock()
+                    .unwrap()
+                    .retain(|e| !matches!(e, Event::Offer { tid, .. } if *tid == t.id));
+            }
+            if t.finished {
+                notify(app, t);
+            }
+        }
         _ => {}
     }
     // Com a janela fechada (estado normal do app) ninguém escuta: não serializa à toa.
