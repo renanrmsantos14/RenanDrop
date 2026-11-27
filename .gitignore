@@ -40,3 +40,6 @@ Thumbs.db
 .testdata/
 .profiles/
 .claude/settings.local.json
+
+# gerado pelo tauri-build
+app/gen/

@@ -1,0 +1,543 @@
+// Sem console no Windows.
+#![cfg_attr(all(not(debug_assertions), windows), windows_subsystem = "windows")]
+
+mod control;
+mod integration;
+
+use renandrop_core::engine::Event;
+use renandrop_core::store::{default_profile_dir, HistoryEntry, Settings};
+use renandrop_core::{Engine, EngineOptions, PeerView, TransferView};
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{
+    AppHandle, DragDropEvent, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder,
+    WindowEvent,
+};
+use tauri_plugin_dialog::DialogExt;
+
+const VERSION_JSON: &str = include_str!("../version.json");
+
+struct App {
+    engine: Engine,
+    /// Pedidos de pareamento e ofertas que ainda esperam resposta da pessoa.
+    pending: Mutex<Vec<Event>>,
+    /// Arquivos vindos do menu de contexto, esperando a escolha dos destinos.
+    staged: Mutex<Vec<String>>,
+    notified: Mutex<HashSet<String>>,
+    exe: PathBuf,
+}
+
+#[derive(Default)]
+struct Args {
+    profile: Option<PathBuf>,
+    port: Option<u16>,
+    name: Option<String>,
+    recv: Option<PathBuf>,
+    ctrl_port: Option<u16>,
+    discovery_off: bool,
+    hidden: bool,
+    no_integration: bool,
+    send: Vec<String>,
+}
+
+fn parse_args() -> Args {
+    let mut a = Args::default();
+    let mut it = std::env::args().skip(1);
+    while let Some(k) = it.next() {
+        match k.as_str() {
+            "--profile" => a.profile = it.next().map(PathBuf::from),
+            "--port" => a.port = it.next().and_then(|v| v.parse().ok()),
+            "--name" => a.name = it.next(),
+            "--recv" => a.recv = it.next().map(PathBuf::from),
+            "--ctrl-port" => a.ctrl_port = it.next().and_then(|v| v.parse().ok()),
+            "--no-discovery" => a.discovery_off = true,
+            "--hidden" => a.hidden = true,
+            "--no-integration" => a.no_integration = true,
+            // Tudo depois de --send são caminhos (o Nemo entrega vários de uma vez).
+            "--send" => {
+                a.send = it.by_ref().collect();
+            }
+            _ => {}
+        }
+    }
+    a
+}
+
+#[derive(Serialize)]
+struct Snapshot {
+    id: String,
+    port: u16,
+    settings: Settings,
+    peers: Vec<PeerView>,
+    transfers: Vec<TransferView>,
+    history: Vec<HistoryEntry>,
+    tailscale: String,
+    pending: Vec<Event>,
+    version: Value,
+}
+
+type St<'a> = State<'a, App>;
+type Res<T> = Result<T, String>;
+fn err<E: std::fmt::Display>(e: E) -> String {
+    e.to_string()
+}
+
+#[tauri::command]
+fn snapshot(st: St) -> Snapshot {
+    let e = &st.engine;
+    Snapshot {
+        id: e.id(),
+        port: e.port(),
+        settings: e.settings(),
+        peers: e.peers(),
+        transfers: e.transfers(),
+        history: e.history(),
+        tailscale: e.tailscale_state(),
+        pending: st.pending.lock().unwrap().clone(),
+        version: serde_json::from_str(VERSION_JSON).unwrap_or_default(),
+    }
+}
+
+/// Itens vindos de `--send` ou do menu de contexto; entregues uma única vez à janela.
+#[tauri::command]
+fn take_staged(st: St) -> Vec<String> {
+    std::mem::take(&mut *st.staged.lock().unwrap())
+}
+
+#[tauri::command]
+fn send(st: St, peer_ids: Vec<String>, paths: Vec<String>) -> Res<Vec<String>> {
+    let paths = paths.into_iter().map(PathBuf::from).collect();
+    st.engine.send(&peer_ids, paths).map_err(err)
+}
+
+#[tauri::command]
+fn pair(st: St, peer_id: String) -> Res<()> {
+    st.engine.pair(&peer_id).map_err(err)
+}
+
+#[tauri::command]
+fn add_remote(st: St, text: String) -> Res<PeerView> {
+    st.engine.add_remote(&text).map_err(err)
+}
+
+#[tauri::command]
+fn forget_remote(st: St, id: String) -> Res<()> {
+    st.engine.forget_remote(&id).map_err(err)
+}
+
+#[tauri::command]
+fn rename_peer(st: St, id: String, name: String) -> Res<()> {
+    st.engine.rename_peer(&id, &name).map_err(err)
+}
+
+#[tauri::command]
+fn set_peer_auto_accept(st: St, id: String, value: Option<bool>) -> Res<()> {
+    st.engine.set_peer_auto_accept(&id, value).map_err(err)
+}
+
+#[tauri::command]
+fn unpair(st: St, id: String) -> Res<()> {
+    st.engine.unpair(&id).map_err(err)
+}
+
+#[tauri::command]
+fn confirm_pair(st: St, req_id: String, ok: bool) {
+    st.pending
+        .lock()
+        .unwrap()
+        .retain(|e| !matches!(e, Event::PairPrompt { req_id: r, .. } if *r == req_id));
+    st.engine.confirm_pair(&req_id, ok);
+}
+
+#[tauri::command]
+fn respond_offer(st: St, tid: String, accept: bool) {
+    st.pending
+        .lock()
+        .unwrap()
+        .retain(|e| !matches!(e, Event::Offer { tid: t, .. } if *t == tid));
+    st.engine.respond_offer(&tid, accept);
+}
+
+#[tauri::command]
+fn cancel(st: St, id: String) {
+    st.engine.cancel(&id);
+}
+
+#[tauri::command]
+fn retry(st: St, id: String) -> Res<()> {
+    st.engine.retry(&id).map_err(err)
+}
+
+#[tauri::command]
+fn clear_finished(st: St) {
+    st.engine.clear_finished();
+}
+
+#[tauri::command]
+fn clear_history(st: St) {
+    st.engine.clear_history();
+}
+
+#[tauri::command]
+fn rescan(st: St) {
+    st.engine.rescan();
+}
+
+#[tauri::command]
+fn update_settings(st: St, patch: Value) -> Res<Settings> {
+    let old = st.engine.settings().autostart;
+    let text = |k: &str| {
+        patch
+            .get(k)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+    };
+    let flag = |k: &str| patch.get(k).and_then(Value::as_bool);
+    let s = st
+        .engine
+        .update_settings(|s| {
+            if let Some(v) = text("device_name") {
+                s.device_name = v;
+            }
+            if let Some(v) = text("recv_dir") {
+                s.recv_dir = v.into();
+            }
+            if let Some(v) =
+                text("theme").filter(|t| matches!(t.as_str(), "auto" | "light" | "dark"))
+            {
+                s.theme = v;
+            }
+            if let Some(v) = patch.get("lanes").and_then(Value::as_u64) {
+                s.lanes = v.clamp(1, 8) as u32;
+            }
+            if let Some(v) = flag("auto_accept") {
+                s.auto_accept = v;
+            }
+            if let Some(v) = flag("autostart") {
+                s.autostart = v;
+            }
+            if let Some(v) = flag("notifications") {
+                s.notifications = v;
+            }
+            if let Some(v) = flag("tailscale") {
+                s.tailscale = v;
+            }
+        })
+        .map_err(err)?;
+    if s.autostart != old {
+        integration::set_autostart(&st.exe, s.autostart).map_err(err)?;
+    }
+    Ok(s)
+}
+
+#[tauri::command]
+async fn pick_paths(app: AppHandle, folder: bool) -> Vec<String> {
+    let d = app.dialog().file();
+    let picked = if folder {
+        d.blocking_pick_folder().map(|p| vec![p])
+    } else {
+        d.blocking_pick_files()
+    };
+    picked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.into_path().ok())
+        .map(|p| p.display().to_string())
+        .collect()
+}
+
+#[tauri::command]
+async fn pick_recv_dir(app: AppHandle) -> Option<String> {
+    app.dialog()
+        .file()
+        .blocking_pick_folder()
+        .and_then(|p| p.into_path().ok())
+        .map(|p| p.display().to_string())
+}
+
+#[tauri::command]
+fn open_path(path: String) {
+    integration::open(&PathBuf::from(path));
+}
+
+#[tauri::command]
+fn reveal_path(path: String) {
+    integration::reveal(&PathBuf::from(path));
+}
+
+#[tauri::command]
+fn quit(app: AppHandle, st: St) {
+    st.engine.shutdown();
+    app.exit(0);
+}
+
+/// Abre a janela (ou traz a que já existe). A janela é criada sob demanda e destruída ao fechar:
+/// com ela fechada o app fica só com o motor e a bandeja, e a memória do WebView é devolvida.
+fn show_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("RenanDrop")
+        .inner_size(480.0, 760.0)
+        .min_inner_size(380.0, 520.0)
+        .center()
+        .build();
+    match built {
+        Ok(w) => {
+            let a = app.clone();
+            w.on_window_event(move |e| {
+                if let WindowEvent::DragDrop(d) = e {
+                    let ev = match d {
+                        DragDropEvent::Enter { .. } | DragDropEvent::Over { .. } => {
+                            serde_json::json!({"type":"drag","over":true})
+                        }
+                        DragDropEvent::Leave => serde_json::json!({"type":"drag","over":false}),
+                        DragDropEvent::Drop { paths, .. } => {
+                            serde_json::json!({"type":"drop","paths":paths})
+                        }
+                        _ => return,
+                    };
+                    let _ = a.emit("rd", ev);
+                }
+            });
+        }
+        Err(e) => log::error!("não consegui abrir a janela: {e}"),
+    }
+}
+
+fn stage(app: &AppHandle, paths: Vec<String>) {
+    if !paths.is_empty() {
+        let st = app.state::<App>();
+        st.staged.lock().unwrap().extend(paths.clone());
+        let _ = app.emit("rd", serde_json::json!({"type":"staged","paths":paths}));
+    }
+    show_window(app);
+}
+
+fn notify(app: &AppHandle, t: &TransferView) {
+    let st = app.state::<App>();
+    let s = st.engine.settings();
+    if !s.notifications || !t.finished || !st.notified.lock().unwrap().insert(t.id.clone()) {
+        return;
+    }
+    let recv = t.dir == "recv";
+    let (title, ok) = match (t.state.as_str(), recv) {
+        ("done", true) => (format!("Recebido de {}", t.peer_name), true),
+        ("done", false) => (format!("Enviado para {}", t.peer_name), true),
+        ("failed", _) => (format!("Falha na transferência com {}", t.peer_name), false),
+        _ => return,
+    };
+    let body = if ok {
+        t.summary.clone()
+    } else {
+        t.error.clone().unwrap_or_else(|| t.summary.clone())
+    };
+    let target = t
+        .path
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| s.recv_dir.clone());
+    std::thread::spawn(move || {
+        let mut n = notify_rust::Notification::new();
+        n.summary(&title)
+            .body(&body)
+            .icon("document-send")
+            .appname("RenanDrop");
+        if recv && ok {
+            n.action("open", "Abrir")
+                .action("folder", "Mostrar na pasta");
+        }
+        let Ok(h) = n.show() else { return };
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if recv && ok {
+            h.wait_for_action(|a| match a {
+                "open" => integration::open(&target),
+                "folder" => integration::reveal(&target),
+                _ => {}
+            });
+        }
+        #[cfg(not(all(unix, not(target_os = "macos"))))]
+        let _ = (h, target);
+    });
+}
+
+fn on_event(app: &AppHandle, ev: Event) {
+    let st = app.state::<App>();
+    match &ev {
+        Event::PairPrompt { .. } | Event::Offer { .. } => {
+            st.pending.lock().unwrap().push(ev.clone());
+            show_window(app);
+        }
+        Event::PairDone { .. } => st
+            .pending
+            .lock()
+            .unwrap()
+            .retain(|e| !matches!(e, Event::PairPrompt { .. })),
+        Event::Transfer(t) if t.finished => notify(app, t),
+        _ => {}
+    }
+    let _ = app.emit("rd", &ev);
+}
+
+fn main() {
+    let args = parse_args();
+    let profile = args.profile.clone().unwrap_or_else(default_profile_dir);
+    let exe = std::env::current_exe().unwrap_or_default();
+    let ctrl_port = args.ctrl_port.unwrap_or(control::DEFAULT_PORT);
+
+    let token = control::token(&profile).unwrap_or_default();
+    let listener = match control::claim(
+        ctrl_port,
+        &control::Msg {
+            token: token.clone(),
+            paths: args.send.clone(),
+        },
+    ) {
+        control::Claim::Forwarded => return,
+        control::Claim::First(l) => Some(l),
+        control::Claim::None => None,
+    };
+
+    let (engine, rx) = match Engine::start(EngineOptions {
+        profile,
+        port: args.port,
+        name: args.name.clone(),
+        recv_dir: args.recv.clone(),
+        discovery: !args.discovery_off,
+    }) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("RenanDrop não conseguiu iniciar: {e:#}");
+            std::process::exit(1);
+        }
+    };
+
+    let settings = engine.settings();
+    if !args.no_integration {
+        let exe = exe.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = integration::install_context_menu(&exe) {
+                log::warn!("menu de contexto: {e}");
+            }
+            if let Err(e) = integration::set_autostart(&exe, settings.autostart) {
+                log::warn!("início com o sistema: {e}");
+            }
+        });
+    }
+
+    let start_paths = args.send.clone();
+    let hidden = args.hidden && start_paths.is_empty();
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(App {
+            engine,
+            pending: Mutex::new(Vec::new()),
+            staged: Mutex::new(Vec::new()),
+            notified: Mutex::new(HashSet::new()),
+            exe,
+        })
+        .invoke_handler(tauri::generate_handler![
+            snapshot,
+            take_staged,
+            send,
+            pair,
+            add_remote,
+            forget_remote,
+            rename_peer,
+            set_peer_auto_accept,
+            unpair,
+            confirm_pair,
+            respond_offer,
+            cancel,
+            retry,
+            clear_finished,
+            clear_history,
+            rescan,
+            update_settings,
+            pick_paths,
+            pick_recv_dir,
+            open_path,
+            reveal_path,
+            quit,
+        ])
+        .setup(move |app| {
+            let h = app.handle().clone();
+            std::thread::spawn({
+                let h = h.clone();
+                move || {
+                    for ev in rx {
+                        on_event(&h, ev);
+                    }
+                }
+            });
+            if let Some(l) = listener {
+                let h = h.clone();
+                control::serve(l, token, move |m| stage(&h, m.paths));
+            }
+            if let Err(e) = build_tray(app.handle()) {
+                log::warn!("bandeja indisponível: {e}");
+            }
+            if !hidden {
+                stage(&h, start_paths);
+            }
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("erro ao iniciar o RenanDrop");
+
+    app.run(|_, e| {
+        // Fechar a janela não encerra o app: ele segue na bandeja recebendo arquivos.
+        if let RunEvent::ExitRequested { api, code, .. } = e {
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+    });
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Abrir RenanDrop", true, None::<&str>)?;
+    let folder = MenuItem::with_id(
+        app,
+        "folder",
+        "Abrir pasta de recebidos",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&open, &folder, &sep, &quit])?;
+    TrayIconBuilder::with_id("main")
+        .icon(tauri::image::Image::from_bytes(include_bytes!(
+            "../icons/tray.png"
+        ))?)
+        .tooltip("RenanDrop")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, e| match e.id().as_ref() {
+            "open" => show_window(app),
+            "folder" => {
+                let dir = app.state::<App>().engine.settings().recv_dir;
+                let _ = std::fs::create_dir_all(&dir);
+                integration::open(&dir);
+            }
+            "quit" => {
+                app.state::<App>().engine.shutdown();
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
