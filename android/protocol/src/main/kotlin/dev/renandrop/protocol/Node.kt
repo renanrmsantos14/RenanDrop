@@ -58,6 +58,8 @@ data class TransferInfo(
     val path: String?,
     val startedMs: Long,
     val route: Route?,
+    /** Recebimento: caminho de topo de cada item gravado (arquivo ou pasta), para quem move os arquivos ao destino final. */
+    val paths: List<String> = emptyList(),
 ) {
     val finished: Boolean get() = state.isFinal
 }
@@ -104,6 +106,7 @@ private class Job(
     var error: String? = null
         private set
     var path: String? = null
+    var paths: List<String> = emptyList()
     var route: Route? = null
     var speed = 0.0
     var lastBytes = 0L
@@ -120,7 +123,7 @@ private class Job(
         val p = prog
         TransferInfo(
             id, direction, peerId, peerName, state, summary, files, minOf(p.bytes.get(), total), total, speed, error, path,
-            startedMs, route ?: p.route?.address?.let { Route.of(it) },
+            startedMs, route ?: p.route?.address?.let { Route.of(it) }, paths,
         )
     }
 
@@ -231,6 +234,11 @@ class Node private constructor(
 
     /** Remove o pareamento (o outro aparelho também precisa remover o seu). */
     fun unpair(peerId: String) = mutatePeers { l -> l.filter { it.id != peerId } }
+
+    /** Troca o nome mostrado de um aparelho pareado (só neste aparelho). */
+    fun rename(peerId: String, name: String) = mutatePeers { l ->
+        l.map { if (it.id == peerId) PairedPeer(it.id, name.trim().take(64).ifEmpty { it.name }, it.publicKey, it.pairedAt, it.autoAccept) else it }
+    }
 
     /** `true` aceita sem perguntar, `false` sempre pergunta, `null` segue [NodeConfig.autoAccept]. */
     fun setAutoAccept(peerId: String, value: Boolean?) = mutatePeers { l ->
@@ -611,7 +619,9 @@ class Node private constructor(
         // Reconexão do mesmo envio: a conexão antiga perde.
         recvReg.put(tid, t)?.superseded = true
         job.prog = t.prog
-        job.path = t.topPaths(config.recvDir).firstOrNull()?.path
+        val tops = t.topPaths(config.recvDir).map { it.path }
+        job.path = tops.firstOrNull()
+        job.paths = tops
         try {
             ch.send(Msg.Accept(t.have()))
         } catch (e: IOException) {

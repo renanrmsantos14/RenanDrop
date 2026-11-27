@@ -3,13 +3,27 @@
 
 Chamado por scripts/build.sh antes de cada build de publicação. Mantém em sincronia
 app/version.json, app/Cargo.toml, app/tauri.conf.json e o Cargo.lock.
+
+Com --android, sobe só a versão do app Android (android/version.properties, lida pelo Gradle);
+a versão do app do PC não muda.
 """
-import json, re, subprocess
+import json, re, subprocess, sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 raiz = Path(__file__).resolve().parent.parent
+
+if "--android" in sys.argv:
+    vp = raiz / "android" / "version.properties"
+    atual = re.search(r"(?m)^version=(\d+\.\d+\.\d+)\s*$", vp.read_text(encoding="utf-8")).group(1)
+    ma, mi, pa = (int(x) for x in atual.split("."))
+    nova = f"{ma}.{mi}.{pa + 1}"
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(timespec="seconds")
+    vp.write_text(f"version={nova}\nbuilt={agora}\n", encoding="utf-8")
+    print(f"v{nova} · {datetime.fromisoformat(agora):%d/%m/%Y %H:%M}")
+    sys.exit(0)
+
 vj = raiz / "app" / "version.json"
 atual = json.loads(vj.read_text(encoding="utf-8"))["version"]
 ma, mi, pa = (int(x) for x in atual.split("."))
