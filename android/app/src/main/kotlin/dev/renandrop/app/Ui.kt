@@ -113,11 +113,6 @@ class Ui(val ctx: Context, val p: Palette) {
         layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
     }
 
-    fun pill(text: String, color: Int): TextView = text(text, 11f, color, true).apply {
-        setPadding(dp(8), dp(4), dp(8), dp(4))
-        background = shape(p.surface2, 20f)
-    }
-
     fun input(hint: String, value: String = "", lines: Int = 1): EditText = EditText(ctx).apply {
         setText(value)
         this.hint = hint
@@ -253,8 +248,6 @@ class Overlay(private val ui: Ui, private val root: FrameLayout) {
     private val layers = ArrayList<Layer>()
     private var insets = Rect()
 
-    val isOpen: Boolean get() = layers.isNotEmpty()
-
     fun setInsets(r: Rect) {
         insets = r
         layers.forEach { it.view.setPadding(r.left, r.top, r.right, r.bottom) }
@@ -290,10 +283,6 @@ class Overlay(private val ui: Ui, private val root: FrameLayout) {
     fun close(l: Layer) {
         if (!layers.remove(l)) return
         animate(l, false) { root.removeView(l.view) }
-    }
-
-    fun closeAll() {
-        layers.toList().forEach { close(it) }
     }
 
     /** Botão Voltar: fecha a camada de cima pelo mesmo caminho do toque fora (pode pedir confirmação). */

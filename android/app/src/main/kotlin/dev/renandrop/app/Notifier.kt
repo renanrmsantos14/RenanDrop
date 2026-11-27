@@ -123,10 +123,6 @@ class Notifier(private val ctx: Context) {
 
     fun cancelPair() = nm.cancel(ID_PAIR)
 
-    fun cancelAsk() {
-        nm.cancel(ID_PAIR)
-    }
-
     private fun action(label: String, what: String, tid: String): Notification.Action {
         val i = Intent(ctx, ActionReceiver::class.java).setAction(what).setData(Uri.parse("renandrop://offer/$tid")).putExtra(ActionReceiver.EXTRA_TID, tid)
         return Notification.Action.Builder(null, label, PendingIntent.getBroadcast(ctx, 0, i, flags())).build()

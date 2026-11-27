@@ -69,6 +69,7 @@ internal fun clientHandshake(s: Socket, me: Identity, peerPub: ByteArray): Chann
     if (t != T_FINISHED || !r.buf.copyOfRange(r.off, r.off + r.len).contentEquals(transcript)) {
         throw ProtocolException("confirmação de chave inválida")
     }
+    r.maxTotal = MAX_PLAIN + TAG_LEN
     return Channel(s, r, w)
 }
 
@@ -106,6 +107,7 @@ internal fun serverHandshake(s: Socket, me: Identity, lookup: (ByteArray) -> Byt
     if (t != T_FINISHED || !r.buf.copyOfRange(r.off, r.off + r.len).contentEquals(transcript)) {
         throw ProtocolException("confirmação de chave inválida")
     }
+    r.maxTotal = MAX_PLAIN + TAG_LEN
     w.send(T_FINISHED, transcript)
     return cid to Channel(s, r, w)
 }

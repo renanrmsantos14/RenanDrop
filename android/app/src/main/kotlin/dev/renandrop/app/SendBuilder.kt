@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import dev.renandrop.protocol.ByteSource
+import dev.renandrop.protocol.MAX_ITEMS
 import dev.renandrop.protocol.RandomReader
 import dev.renandrop.protocol.SendItem
 import dev.renandrop.protocol.fileSource
@@ -25,8 +26,6 @@ class Described(val uri: Uri, val name: String, val size: Long, val mtime: Long)
  * nada é copiado, exceto fontes sem tamanho conhecido ou sem acesso posicional (cache temporário).
  */
 object SendBuilder {
-    private const val MAX_ITEMS = 200_000
-
     fun describe(cr: ContentResolver, uri: Uri): Described {
         if (uri.scheme == "file") {
             val f = File(uri.path.orEmpty())

@@ -80,12 +80,12 @@ class HistoryStore(private val file: File) {
         return HistoryEntry(
             id = o.getString("id"), ts = o.getLong("ts"), dir = Direction.valueOf(o.getString("dir")),
             peer = o.getString("peer"), summary = o.getString("summary"), files = o.getInt("files"), bytes = o.getLong("bytes"),
-            state = TransferState.valueOf(o.getString("state")), error = o.optString("error").takeIf { it.isNotEmpty() && it != "null" },
+            state = TransferState.valueOf(o.getString("state")), error = o.optStr("error"),
             saved = s?.let {
                 Saved(
-                    it.optString("open").takeIf { v -> v.isNotEmpty() && v != "null" },
-                    it.optString("mime").takeIf { v -> v.isNotEmpty() && v != "null" },
-                    it.optString("folder").takeIf { v -> v.isNotEmpty() && v != "null" },
+                    it.optStr("open"),
+                    it.optStr("mime"),
+                    it.optStr("folder"),
                     it.optString("where"),
                 )
             },
@@ -96,3 +96,5 @@ class HistoryStore(private val file: File) {
         const val MAX = 100
     }
 }
+
+private fun JSONObject.optStr(k: String): String? = if (isNull(k)) null else optString(k).ifEmpty { null }

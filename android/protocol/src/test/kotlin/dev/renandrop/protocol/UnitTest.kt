@@ -109,7 +109,7 @@ class UnitTest {
         w.send(T_DATA, big)
         w.send(T_JSON, "oi".toByteArray())
         val bytes = out.toByteArray()
-        val r = SecureReader(ByteArrayInputStream(bytes), key)
+        val r = SecureReader(ByteArrayInputStream(bytes), key).also { it.maxTotal = MAX_PLAIN + TAG_LEN }
         assertEquals(T_DATA, r.recv())
         assertContentEquals(big, r.buf.copyOfRange(r.off, r.off + r.len))
         assertEquals(T_JSON, r.recv())
@@ -117,9 +117,9 @@ class UnitTest {
         // Adulterar um byte do corpo falha na autenticação.
         val bad = bytes.copyOf()
         bad[100] = (bad[100].toInt() xor 1).toByte()
-        assertFailsWith<AuthException> { SecureReader(ByteArrayInputStream(bad), key).recv() }
+        assertFailsWith<AuthException> { SecureReader(ByteArrayInputStream(bad), key).also { it.maxTotal = MAX_PLAIN + TAG_LEN }.recv() }
         // Chave errada também.
-        assertFailsWith<AuthException> { SecureReader(ByteArrayInputStream(bytes), randomBytes(32)).recv() }
+        assertFailsWith<AuthException> { SecureReader(ByteArrayInputStream(bytes), randomBytes(32)).also { it.maxTotal = MAX_PLAIN + TAG_LEN }.recv() }
     }
 
     @Test

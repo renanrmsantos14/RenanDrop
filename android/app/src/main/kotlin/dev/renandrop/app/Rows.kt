@@ -1,7 +1,6 @@
 package dev.renandrop.app
 
 import android.view.Gravity
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import dev.renandrop.protocol.Direction

@@ -9,7 +9,6 @@ import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -19,7 +18,7 @@ internal const val SEG = 8L shl 20
 internal const val FRAME = 256 shl 10
 
 /** Itens por envio e tamanho máximo por arquivo aceitos (a oferta cabe em um quadro). */
-internal const val MAX_ITEMS = 200_000
+const val MAX_ITEMS = 200_000
 internal const val MAX_FILE = 1L shl 46
 
 internal fun nsegs(size: Long): Int = ((size + SEG - 1) / SEG).toInt()
@@ -77,9 +76,11 @@ internal class Progress(val total: Long) {
     }
 }
 
-private fun closeQuietly(s: Socket) {
+internal fun String.isHex(): Boolean = all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+
+internal fun closeQuietly(s: java.io.Closeable?) {
     try {
-        s.close()
+        s?.close()
     } catch (_: IOException) {
     }
 }
@@ -192,7 +193,7 @@ private class SendShared(val prog: Progress) {
     fun wake() = synchronized(lock) { lock.notifyAll() }
 }
 
-private fun spawn(name: String, block: () -> Unit): Thread = Thread(block, name).also {
+internal fun spawn(name: String, block: () -> Unit): Thread = Thread(block, name).also {
     it.isDaemon = true
     it.start()
 }
@@ -534,7 +535,7 @@ internal class RecvTransfer private constructor(
             for ((k, it) in items.withIndex()) {
                 if (it.i != k || sanitizeRel(it.path) == null) throw ProtocolException("caminho inválido na oferta: ${it.path}")
             }
-            if (tid.isEmpty() || !tid.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+            if (tid.isEmpty() || !tid.isHex()) {
                 throw ProtocolException("identificador inválido")
             }
             recvDir.mkdirs()

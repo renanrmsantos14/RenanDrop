@@ -20,7 +20,7 @@ internal const val ST_NOT_PAIRED = 1
 
 /** Porta padrão do serviço; se estiver ocupada, o nó tenta as seguintes. */
 const val DEFAULT_PORT = 47821
-internal const val PORT_SPAN = 5
+const val PORT_SPAN = 5
 
 internal fun preamble(kind: Int): ByteArray = MAGIC + byteArrayOf(VERSION.toByte(), kind.toByte())
 

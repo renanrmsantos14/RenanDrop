@@ -298,6 +298,9 @@ internal class SecureReader(private val inp: InputStream, key: ByteArray) {
     private var plainBuf = ByteArray(300 * 1024)
     private val header = ByteArray(4)
 
+    /** Tamanho máximo do quadro cifrado. Começa pequeno (só cabe o T_FINISHED) para não alocar até 32 MiB antes de autenticar; [Session] sobe depois do aperto de mão. */
+    var maxTotal = 1 + 256 + TAG_LEN
+
     var buf: ByteArray = plainBuf
         private set
     var off = 0
@@ -330,7 +333,7 @@ internal class SecureReader(private val inp: InputStream, key: ByteArray) {
         fill(header, 0, 4, true)
         val total = ((header[0].toInt() and 0xff) shl 24) or ((header[1].toInt() and 0xff) shl 16) or
             ((header[2].toInt() and 0xff) shl 8) or (header[3].toInt() and 0xff)
-        if (total < 1 + TAG_LEN || total > MAX_PLAIN + TAG_LEN) throw ProtocolException("tamanho de quadro inválido")
+        if (total < 1 + TAG_LEN || total > maxTotal) throw ProtocolException("tamanho de quadro inválido")
         if (cipherBuf.size < total) {
             cipherBuf = ByteArray(total)
             plainBuf = ByteArray(total)

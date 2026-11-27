@@ -10,7 +10,6 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.LinearLayout
 import android.widget.ScrollView
 
 /** Destino do "Compartilhar": uma folha na parte de baixo para escolher os aparelhos e enviar. */
@@ -32,7 +31,7 @@ class ShareActivity : Activity() {
 
         val staged = stagedFrom(intent)
         if (staged == null || staged.isEmpty) {
-            Ui(this, Palette(dark)).toast("Nada para enviar")
+            ui.toast("Nada para enviar")
             finish()
             return
         }
@@ -118,6 +117,8 @@ class ShareActivity : Activity() {
             else -> return null
         }
         i.clipData?.let { c -> for (k in 0 until c.itemCount) c.getItemAt(k).uri?.let { uris.add(it) } }
+        // file:// daria ao app de origem acesso aos arquivos privados do RenanDrop; só content:// passa.
+        uris.removeAll { it.scheme != "content" }
         val text = if (uris.isEmpty()) i.getStringExtra(Intent.EXTRA_TEXT) else null
         return Staged(uris.toList(), null, text)
     }

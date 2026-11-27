@@ -211,11 +211,6 @@ class Node private constructor(
         }
     }
 
-    private fun spawn(name: String, block: () -> Unit): Thread = Thread(block, name).also {
-        it.isDaemon = true
-        it.start()
-    }
-
     // ───────────── Aparelhos ─────────────
 
     /** Aparelhos pareados. */
@@ -260,7 +255,7 @@ class Node private constructor(
             s.getOutputStream().flush()
             val m = readPlain(s.getInputStream(), 512)
             val id = m.str("id")
-            if (id.length != 32 || !id.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return null
+            if (id.length != 32 || !id.isHex()) return null
             ProbeResult(id.lowercase(), (m["name"] as? String ?: "Aparelho").take(64), addr)
         } catch (_: IOException) {
             null
@@ -331,7 +326,7 @@ class Node private constructor(
         val id = p.id.hex()
         mutatePeers { l ->
             val old = l.firstOrNull { it.id == id }
-            l.filter { it.id != id } + PairedPeer(id, p.name, p.publicKey, System.currentTimeMillis(), old?.autoAccept)
+            l.filter { it.id != id } + PairedPeer(id, p.name.trim().take(64).ifEmpty { "Aparelho" }, p.publicKey, System.currentTimeMillis(), old?.autoAccept)
         }
         emit(NodeEvent.PairDone(true, p.name, null))
     }
@@ -388,8 +383,8 @@ class Node private constructor(
     }
 
     private fun runSend(job: Job) {
-        if (job.cancelRequested) return finishJob(job, TransferState.CANCELLED, null)
-        val peer = peer(job.peerId) ?: return finishJob(job, TransferState.FAILED, "aparelho não está mais pareado")
+        if (job.cancelRequested) return setState(job, TransferState.CANCELLED, null)
+        val peer = peer(job.peerId) ?: return setState(job, TransferState.FAILED, "aparelho não está mais pareado")
         val list = job.items.mapIndexed { i, it -> Item(i, it.path, it.size, it.mtime, it.isDir) }
         val tid = transferId(identity.id, idOf(peer.publicKey), list)
         var attempt = 0
@@ -419,10 +414,10 @@ class Node private constructor(
                 SendException.io(e.message ?: e.javaClass.simpleName)
             }
             when {
-                failure == null -> return finishJob(job, TransferState.DONE, null)
-                failure.kind == SendException.Kind.CANCELLED -> return finishJob(job, TransferState.CANCELLED, null)
-                failure.kind == SendException.Kind.DECLINED -> return finishJob(job, TransferState.DECLINED, failure.message?.removePrefix("recusado: "))
-                !failure.retriable -> return finishJob(job, TransferState.FAILED, failure.message)
+                failure == null -> return setState(job, TransferState.DONE, null)
+                failure.kind == SendException.Kind.CANCELLED -> return setState(job, TransferState.CANCELLED, null)
+                failure.kind == SendException.Kind.DECLINED -> return setState(job, TransferState.DECLINED, failure.message?.removePrefix("recusado: "))
+                !failure.retriable -> return setState(job, TransferState.FAILED, failure.message)
             }
             // Quem avançou desde a última queda ganha novas tentativas (transferência grande em rede ruim).
             val now = prog.bytes.get()
@@ -430,18 +425,13 @@ class Node private constructor(
                 best = now
                 attempt = 0
             }
-            if (attempt >= BACKOFF.size) return finishJob(job, TransferState.FAILED, failure!!.message)
+            if (attempt >= BACKOFF.size) return setState(job, TransferState.FAILED, failure!!.message)
             setState(job, TransferState.RETRYING, failure!!.message)
             val wait = BACKOFF[attempt++]
             val t0 = System.nanoTime()
             while (System.nanoTime() - t0 < wait * 1_000_000_000L && !job.cancelRequested && !stop.get()) Thread.sleep(100)
-            if (job.cancelRequested || stop.get()) return finishJob(job, TransferState.CANCELLED, null)
+            if (job.cancelRequested || stop.get()) return setState(job, TransferState.CANCELLED, null)
         }
-    }
-
-    private fun finishJob(job: Job, s: TransferState, err: String?) {
-        job.set(s, err)
-        emit(NodeEvent.Transfer(job.info()))
     }
 
     /** Cancela uma transferência (envio ou recebimento). */
@@ -450,7 +440,7 @@ class Node private constructor(
         j.cancelRequested = true
         j.prog.cancel()
         val queued = synchronized(queues) { queues[j.peerId]?.q?.remove(j) == true }
-        if (queued) finishJob(j, TransferState.CANCELLED, null)
+        if (queued) setState(j, TransferState.CANCELLED, null)
     }
 
     /** Repete um envio que falhou ou foi cancelado (retoma de onde parou). Devolve o id do novo envio. */
@@ -504,12 +494,12 @@ class Node private constructor(
                 s.close()
                 return@spawn
             }
-            if (conns.get() >= 64) {
+            if (conns.incrementAndGet() > 64) {
+                conns.decrementAndGet()
                 s.close()
                 continue
             }
             spawn("rd-conn") {
-                conns.incrementAndGet()
                 liveSockets.add(s)
                 try {
                     handleConn(s)
@@ -603,7 +593,7 @@ class Node private constructor(
                     ch.send(Msg.Reject("recusado pelo usuário"))
                 } catch (_: IOException) {
                 }
-                return finishJob(job, TransferState.DECLINED, "recusado")
+                return setState(job, TransferState.DECLINED, "recusado")
             }
         }
         val t = try {
@@ -613,7 +603,7 @@ class Node private constructor(
                 ch.send(Msg.Reject(e.message ?: "oferta inválida"))
             } catch (_: IOException) {
             }
-            finishJob(job, TransferState.FAILED, e.message)
+            setState(job, TransferState.FAILED, e.message)
             throw e
         }
         // Reconexão do mesmo envio: a conexão antiga perde.
@@ -626,7 +616,7 @@ class Node private constructor(
             ch.send(Msg.Accept(t.have()))
         } catch (e: IOException) {
             unregisterRecv(tid, t)
-            finishJob(job, TransferState.FAILED, "o remetente desconectou antes do início")
+            setState(job, TransferState.FAILED, "o remetente desconectou antes do início")
             throw e
         }
         setState(job, TransferState.RECEIVING)
@@ -637,20 +627,20 @@ class Node private constructor(
             unregisterRecv(tid, t)
             t.save()
             if (!t.superseded) {
-                finishJob(job, TransferState.FAILED, "${e.message ?: e.javaClass.simpleName} (a parte recebida fica guardada; reenvie para retomar)")
+                setState(job, TransferState.FAILED, "${e.message ?: e.javaClass.simpleName} (a parte recebida fica guardada; reenvie para retomar)")
             }
             throw e
         }
         unregisterRecv(tid, t)
         when (end) {
-            LaneEnd.COMPLETE -> finishJob(job, TransferState.DONE, null)
+            LaneEnd.COMPLETE -> setState(job, TransferState.DONE, null)
             LaneEnd.PEER_CANCELLED -> {
                 t.cleanup()
-                finishJob(job, TransferState.CANCELLED, "cancelado pelo remetente")
+                setState(job, TransferState.CANCELLED, "cancelado pelo remetente")
             }
             LaneEnd.LOCAL_CANCELLED -> {
                 t.cleanup()
-                finishJob(job, TransferState.CANCELLED, null)
+                setState(job, TransferState.CANCELLED, null)
             }
             LaneEnd.SUPERSEDED -> {}
         }

@@ -1,6 +1,7 @@
 package dev.renandrop.app
 
 import dev.renandrop.protocol.DEFAULT_PORT
+import dev.renandrop.protocol.PORT_SPAN
 import dev.renandrop.protocol.Route
 import java.net.InetSocketAddress
 
@@ -51,4 +52,4 @@ fun parseTarget(text: String): Target? {
 }
 
 /** Portas a sondar: a informada, ou as 5 em que o serviço pode estar escutando. */
-fun probePorts(port: Int?): List<Int> = if (port != null) listOf(port) else (DEFAULT_PORT until DEFAULT_PORT + 5).toList()
+fun probePorts(port: Int?): List<Int> = if (port != null) listOf(port) else (DEFAULT_PORT until DEFAULT_PORT + PORT_SPAN).toList()

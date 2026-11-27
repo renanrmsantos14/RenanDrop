@@ -2,8 +2,8 @@
 
 - **Nível:** feature grande (nível 2), entregue em PRs incrementais
 - **Branch:** `feature/app-completo`
-- **Etapa:** 2 de 4: app do PC (PR 2 em preparação; PR 1 do núcleo aberto)
-- **Próximo passo:** abrir o PR 2 · **sozinho**; depois bloco 3 (Android) · **sozinho**
+- **Etapa:** 3 de 4: Android (PR 3 em rascunho; PR 1 e PR 2 abertos)
+- **Próximo passo:** bloco 4 (release, autoupdate ed25519) · **sozinho**
 
 ## Blocos
 | # | Bloco | Estado |
@@ -35,6 +35,8 @@
 ## Provas do bloco 3 (Android, sem aparelho)
 - `./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest :protocol:test` passa (JDK 17, AGP 8.7.3, Kotlin 2.0.21): 21 testes no `app` (formatação, rótulos, ordem de endereços LAN antes de tailnet, destino digitado, pasta de recebimento, tema, versão) e 21 no `protocol` (inclui interoperabilidade com o binário Rust, retomada e recusa de não pareado).
 - APK debug `v0.0.1` (`scripts/build.sh android`): 4,6 MB, assinado com a chave debug; `assembleRelease` com R8 fecha (unsigned, 0,27 MB).
+- Interop Kotlin↔Rust (JVM no desktop, loopback, 300 MiB, 4 pistas, hash igual): **Kotlin→Rust 147 MB/s, Rust→Kotlin 115 MB/s**. Velocidade em Wi-Fi no celular não provada.
+- Qualidade: 2 passadas (simplify com 4 agentes + karpathy-coder), sem skill de framework para Kotlin/Android, code-review high com 3 correções importantes (limite de quadro antes de autenticar, só `content://` no compartilhar, chave de deduplicação do histórico) e 2 menores.
 - Módulo `android/protocol` ganhou `TransferInfo.paths` e `Node.rename` (para copiar ao destino final e renomear aparelho).
 - Assinatura de release fora do repositório: `docs/android-assinatura.md`. Verificação: skill `verificar-app-android`.
 - Não provado (precisa de aparelho): descoberta NSD real, serviço em segundo plano, tile, compartilhar vindo de outro app, notificações, cópia para `Downloads/RenanDrop` (MediaStore) e pasta escolhida (SAF), início no boot, Tailscale, velocidade em Wi-Fi.

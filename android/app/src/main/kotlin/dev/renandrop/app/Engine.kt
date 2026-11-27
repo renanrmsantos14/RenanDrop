@@ -162,7 +162,7 @@ class Engine(private val app: Context) {
             n?.close()
         } catch (_: Exception) {
         }
-        notifier.cancelAsk()
+        notifier.cancelPair()
         publishSoon()
     }
 
@@ -206,7 +206,7 @@ class Engine(private val app: Context) {
 
     /** Fim de uma transferência: leva o recebido ao destino final, grava o histórico e avisa (uma vez só). */
     private fun finish(t: TransferInfo) {
-        if (!synchronized(lock) { recorded.add("${t.id}:${t.state}") }) return
+        if (!synchronized(lock) { recorded.add("${t.id}-${t.startedMs}:${t.state}") }) return
         var saved: Saved? = null
         var err = t.error
         var state = t.state
@@ -327,9 +327,15 @@ class Engine(private val app: Context) {
             ids.addAll(manual.map { it.id })
         }
         ids.addAll(n.peers().map { it.id })
-        val jobs = ids.map { id -> probes.submit { verify(id) } }
-        jobs.forEach { try { it.get() } catch (_: Exception) {} }
-        publishSoon()
+        // Sem esperar: a fila `io` fica livre para aceitar/recusar/cancelar; cada verify já publica o próprio resultado.
+        ids.forEach { id ->
+            probes.execute {
+                try {
+                    verify(id)
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     private fun refreshTailscale() {

@@ -27,7 +27,6 @@ class Palette(val dark: Boolean) {
     val accent = Color.parseColor(if (dark) "#6B8BFF" else "#3F6BFF")
     val accent2 = Color.parseColor(if (dark) "#9A79FF" else "#7A4DFF")
     val ok = Color.parseColor(if (dark) "#4CD08A" else "#158A52")
-    val warn = Color.parseColor(if (dark) "#F0B252" else "#B26A00")
     val bad = Color.parseColor(if (dark) "#FF7584" else "#C62F3E")
     val scrim = Color.argb(115, 8, 10, 18)
     val onAccent = Color.WHITE
