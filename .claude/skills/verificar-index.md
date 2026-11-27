@@ -1,3 +1,4 @@
 - verificar-transferencia | core/**, Cargo.toml | protocolo, cripto, pareamento, transferência paralela, retomada, rotas LAN/Tailscale
 - verificar-app-pc | app/**, scripts/** | app Tauri do PC: janela, bandeja, instância única, --send, fila, configurações, versão, RAM
 - verificar-app-android | android/**, scripts/** | app Android Kotlin: serviço, NSD, compartilhar, tile, notificações, MediaStore, versão, APK debug/release
+- verificar-release | core/src/updater.rs, app/src/updater.rs, .github/**, scripts/release.sh, docs/release.md | assinatura ed25519, atualizador do app do PC, workflow de release (só manual)

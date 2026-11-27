@@ -8,5 +8,6 @@ pub mod session;
 pub mod store;
 pub mod tailnet;
 pub mod transfer;
+pub mod updater;
 
 pub use engine::{Engine, EngineOptions, Event, PeerView, TransferView};

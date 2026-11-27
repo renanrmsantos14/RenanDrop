@@ -101,6 +101,7 @@ async function load() {
   if (!snap) return;
   S.snap = snap;
   applyTheme(snap.settings.theme);
+  markUpdate();
   const v = snap.version || {};
   $("build-version").textContent = `v${v.version || "0.0.0"} · ${v.built ? fmtDate(new Date(v.built)) : ""}`;
   for (const ev of snap.pending) openPrompt(ev);
@@ -146,6 +147,7 @@ listen("rd", ({ payload: ev }) => {
       break;
     }
     case "settings": refreshHistory(); break;
+    case "update": S.snap.update = ev.update; markUpdate(); if (S.drawer) drawDrawer(); break;
     case "pair_prompt": case "offer": openPrompt(ev); break;
     case "pair_done":
       closeModal("pair");
@@ -434,8 +436,57 @@ function openSettings() {
   drawDrawer();
   $("drawer").querySelector("input")?.focus();
 }
+const upd = () => S.snap?.update || { state: "idle" };
+const installing = () => upd().state === "installing";
+/** Ponto na engrenagem quando há versão nova esperando. */
+function markUpdate() {
+  $("btn-settings").classList.toggle("has-update", upd().state === "available");
+}
+async function checkNow() {
+  if (["checking", "installing"].includes(upd().state)) return;
+  S.snap.update = { state: "checking" };
+  drawDrawer();
+  S.snap.update = (await call("check_update")) || { state: "idle" };
+  markUpdate();
+  if (S.drawer) drawDrawer();
+}
+function installNow() {
+  if (installing()) return;
+  const go = async () => {
+    closeModal("install");
+    S.snap.update = { state: "installing" };
+    drawDrawer();
+    // Sucesso: o app reinicia. Falha: o estado "error" chega pelo evento e aparece no bloco.
+    try { await invoke("install_update"); } catch (e) { if (installing()) { S.snap.update = { state: "error", message: String(e) }; drawDrawer(); } }
+  };
+  const busy = S.snap.transfers.some((t) => !t.finished);
+  if (!busy) return go();
+  openModal("install",
+    modal("Há transferências em andamento", h("p", { text: "Instalar agora reinicia o RenanDrop e interrompe o que está sendo enviado ou recebido." }),
+      [h("button", { class: "btn primary", text: "Esperar", onclick: () => closeModal("install") }), h("button", { class: "btn danger", text: "Instalar mesmo assim", onclick: go })]),
+    () => closeModal("install"));
+}
+function updateBlock() {
+  const u = upd();
+  const v = S.snap.version || {};
+  const line = {
+    idle: "Ainda não verificado.",
+    checking: "Procurando…",
+    up_to_date: "Você está na versão mais recente.",
+    available: `Versão ${u.version} disponível.`,
+    installing: "Baixando e conferindo a assinatura… o app reinicia sozinho.",
+    error: u.message,
+  }[u.state] || "";
+  return h("div", { class: "field", id: "updates" }, h("span", { class: "label", text: "Atualizações" }),
+    h("p", { class: "hint", text: `Versão atual: v${v.version || "0.0.0"}` }),
+    h("p", { class: "upd-line" + (u.state === "error" ? " err" : ""), id: "upd-line", role: "status", text: line }),
+    h("div", { class: "upd-actions" },
+      h("button", { class: "btn", id: "upd-check", text: u.state === "checking" ? "Procurando…" : "Procurar agora", "aria-disabled": String(u.state === "checking" || installing()), onclick: checkNow }),
+      u.state === "available" ? h("button", { class: "btn primary", id: "upd-install", text: "Instalar e reiniciar", onclick: installNow }) : null),
+    h("p", { class: "hint", text: "Só instala o que estiver assinado pelo autor do RenanDrop." }));
+}
 function requestCloseSettings() {
-  if (!S.drawer || S.drawer.saving) return;
+  if (!S.drawer || S.drawer.saving || installing()) return;
   if (!dirty()) return closeSettings();
   openModal("discard",
     modal("Descartar alterações?", h("p", { text: "As mudanças nas configurações ainda não foram salvas." }),
@@ -476,9 +527,11 @@ function drawDrawer() {
     h("span", {}, h("span", { text: label }), hint ? h("div", { class: "hint", text: hint }) : null));
   const items = () => [...dr.querySelectorAll("input, button")];
   const focusIdx = dr.contains(document.activeElement) ? items().indexOf(document.activeElement) : -1;
+  const caret = focusIdx >= 0 && document.activeElement.type === "text" ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+  const scroll = dr.querySelector(".drawer-body")?.scrollTop || 0; // redesenhar não pode devolver a gaveta ao topo
   dr.replaceChildren(
     h("div", { class: "drawer-head" }, h("h2", { id: "drawer-title", text: "Configurações" }),
-      h("button", { class: "icon-btn", "aria-label": "Fechar", text: "✕", onclick: requestCloseSettings })),
+      h("button", { class: "icon-btn", "aria-label": "Fechar", text: "✕", disabled: installing(), onclick: requestCloseSettings })),
     h("div", { class: "drawer-body" },
       h("div", { class: "field" }, h("label", { for: "f-name", text: "Nome deste aparelho" }),
         h("input", { class: "input", id: "f-name", value: d.draft.device_name, disabled: d.saving, oninput: typing("device_name") })),
@@ -493,16 +546,20 @@ function drawDrawer() {
       sw("notifications", "Mostrar notificações"),
       sw("autostart", "Iniciar com o sistema", "Fica na bandeja, pronto para receber."),
       sw("tailscale", "Procurar aparelhos pelo Tailscale", "Só usado se o Tailscale estiver instalado e conectado."),
+      sw("auto_update", "Procurar atualizações automaticamente", "Ao iniciar e a cada 6 horas; você decide quando instalar."),
       h("div", { class: "field" }, h("label", { id: "lanes-label", for: "f-lanes", text: `Conexões paralelas por envio: ${d.draft.lanes}` }),
         h("input", { id: "f-lanes", type: "range", min: "1", max: "8", value: String(d.draft.lanes), disabled: d.saving, oninput: (e) => { typing("lanes")(e); $("lanes-label").textContent = `Conexões paralelas por envio: ${d.draft.lanes}`; } }),
         h("p", { class: "hint", text: "Mais conexões aproveitam melhor a rede; 4 serve para a maioria." })),
+      updateBlock(),
       h("div", { class: "field" }, h("span", { class: "label", text: "Sair" }),
         h("button", { class: "btn danger", text: "Encerrar o RenanDrop", onclick: () => call("quit") }),
         h("p", { class: "hint", text: "Fechar a janela só a esconde; o app continua recebendo pela bandeja." }))),
     h("div", { class: "drawer-foot" },
-      h("button", { class: "btn", text: "Cancelar", disabled: d.saving, onclick: requestCloseSettings }),
-      h("button", { class: "btn primary", id: "save-btn", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || !dirty(), onclick: saveSettings })));
-  if (focusIdx >= 0) items()[focusIdx]?.focus();
+      h("button", { class: "btn", text: "Cancelar", disabled: d.saving || installing(), onclick: requestCloseSettings }),
+      h("button", { class: "btn primary", id: "save-btn", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || installing() || !dirty(), onclick: saveSettings })));
+  dr.querySelector(".drawer-body").scrollTop = scroll;
+  if (focusIdx >= 0) items()[focusIdx]?.focus({ preventScroll: true });
+  if (caret) try { document.activeElement.setSelectionRange(...caret); } catch {}
 }
 $("overlay").addEventListener("mousedown", requestCloseSettings);
 

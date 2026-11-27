@@ -76,10 +76,14 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .brand-text p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .top-actions { display: flex; gap: 4px; }
 .icon-btn {
-  width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer;
+  position: relative; width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer;
   background: transparent; border: 0; border-radius: 10px; color: var(--muted);
 }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn.has-update::after {
+  content: ""; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent-2); border: 2px solid var(--bg); box-sizing: content-box; pointer-events: none;
+}
 .icon-btn.spin svg { animation: spin .8s linear; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -95,7 +99,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.danger { color: var(--bad); }
 .btn.small { padding: 4px 10px; font-size: 12.5px; border-radius: 8px; }
-.btn[disabled] { opacity: .5; cursor: default; }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .5; cursor: default; }
 
 /* Área de soltar */
 .drop {
@@ -208,6 +212,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .seg button { all: unset; cursor: pointer; padding: 6px 14px; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 :root[data-theme="light"] .seg button[aria-pressed="true"] { color: #fff; }
+.upd-line { font-size: 13px; }
+.upd-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 2px 0; }
 .path-row { display: flex; gap: 8px; }
 @keyframes slide { from { transform: translateX(24px); opacity: 0; } }
 @keyframes fade { from { opacity: 0; } }

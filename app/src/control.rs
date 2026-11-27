@@ -47,6 +47,15 @@ pub fn token(profile: &Path) -> Result<String> {
     Ok(t)
 }
 
+/// Espera o processo anterior soltar a porta de controle (ele sai logo depois de abrir este).
+pub fn wait_free(port: u16, max: Duration) {
+    let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
+    let fim = std::time::Instant::now() + max;
+    while TcpListener::bind(addr).is_err() && std::time::Instant::now() < fim {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 pub fn claim(port: u16, msg: &Msg) -> Claim {
     let addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port);
     match TcpListener::bind(addr) {

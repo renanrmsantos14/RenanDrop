@@ -18,4 +18,6 @@ Rode da raiz do repositório. Sempre filtre a saída. `/home` costuma estar quas
 7. **RAM parado** (release, `--hidden`): `ps -o rss= -p <pid>` somando os processos filhos (`pgrep -P`); meta < 50 MB. Com janela aberta mede-se à parte e diz-se no PR.
 8. **Integração**: sem `--no-integration`, em HOME temporário (`HOME=<tmp> XDG_DATA_HOME=...`), o `renandrop.nemo_action` deve existir com `Exec="…/renandrop" --send %F`. Windows: `cargo check -p renandrop --target x86_64-pc-windows-msvc` (sem toolchain, vai como "não provado").
 
+9. **Atualizações** (bloco "Atualizações" nas configurações, engrenagem com ponto de aviso): `cargo test -p renandrop` (10 testes do atualizador). Teste real em build debug com `RENANDROP_UPDATE_URL=file://<latest.json falso>` e `RENANDROP_UPDATE_PUBKEY=<chave de TESTE>`; o fluxo completo está em `verificar-release`. A opção "Procurar atualizações automaticamente" persiste; com instalação em curso Cancelar/Salvar/✕/clique fora não fecham.
+
 Imprima prints com `import -window root`. Falha de pareamento ou hash: capture o log (`<perfil>/../*.log`) antes de afirmar causa.
