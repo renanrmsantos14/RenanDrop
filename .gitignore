@@ -1,0 +1,42 @@
+# Segredos e chaves: o repositório é público, nada disso entra no Git
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+keystore.properties
+key.properties
+*.env
+.env*
+!.env.example
+secrets/
+local.properties
+*.secret
+update-signing*
+
+# Build
+target/
+node_modules/
+dist/
+build/
+.gradle/
+*.apk
+*.aab
+*.apks
+*.AppImage
+*.msi
+*.exe
+
+# Editor e SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.rdpart
+
+# Dados de teste e perfis locais
+.testdata/
+.profiles/
+.claude/settings.local.json
