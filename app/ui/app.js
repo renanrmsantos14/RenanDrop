@@ -23,7 +23,6 @@ const S = {
   menu: null,
   drawer: null, // { draft, saving }
   modals: [], // { key, node, onOutside }
-  busy: false,
 };
 
 /* ---------- utilidades ---------- */
@@ -52,7 +51,6 @@ function fmtBytes(n) {
   const v = n / 1024 ** i;
   return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${u[i]}`.replace(".", ",");
 }
-const fmtSpeed = (bps) => `${fmtBytes(bps)}/s`;
 const SP = "America/Sao_Paulo";
 function fmtDate(d) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: SP, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).replace(",", "");
@@ -148,7 +146,7 @@ listen("rd", ({ payload: ev }) => {
       break;
     case "notice": toast(ev.message); break;
     case "drag": $("drop").classList.toggle("over", ev.over); break;
-    case "drop": $("drop").classList.remove("over"); ev.paths.forEach((p) => addStaged(p, false)); renderStage(); break;
+    case "drop": $("drop").classList.remove("over"); ev.paths.forEach(addStaged); renderStage(); break;
     case "staged": pullStaged(); break;
   }
 });
@@ -213,10 +211,6 @@ function renderStage() {
     }));
 }
 
-function routePill(route) {
-  return route ? h("span", { class: "pill " + route, text: ROUTES[route] || route }) : null;
-}
-
 function peerCard(p) {
   const menuOpen = S.menu === p.id;
   const sub = p.online ? [ROUTES[p.route], p.addr].filter(Boolean).join(" · ") : p.paired ? "Offline" : "";
@@ -266,7 +260,7 @@ function renderPeers() {
   const s = S.snap;
   const paired = s.peers.filter((p) => p.paired);
   const found = s.peers.filter((p) => !p.paired);
-  const typed = document.getElementById("add-input");
+  const typed = $("add-input");
   const keep = typed ? { value: typed.value, focus: document.activeElement === typed } : null;
   const input = h("input", { class: "input", id: "add-input", placeholder: "Nome ou IP (ex.: casa-pc ou 100.64.0.5)", "aria-label": "Nome ou IP do aparelho", autocomplete: "off", spellcheck: "false" });
   const add = async () => {
@@ -295,8 +289,8 @@ function transferRow(t) {
   const meta = [
     h("span", { text: STATES[t.state] || t.state }),
     t.total ? h("span", { text: `${fmtBytes(t.bytes)} de ${fmtBytes(t.total)}` }) : null,
-    active && t.speed > 0 ? h("span", { text: fmtSpeed(t.speed) }) : null,
-    routePill(t.route),
+    active && t.speed > 0 ? h("span", { text: `${fmtBytes(t.speed)}/s` }) : null,
+    t.route ? h("span", { class: "pill " + t.route, text: ROUTES[t.route] || t.route }) : null,
   ];
   const btns = [];
   if (active) btns.push(h("button", { class: "btn small", text: "Cancelar", onclick: () => call("cancel", { id: t.id }) }));
@@ -480,15 +474,13 @@ function drawDrawer() {
       h("div", { class: "field" }, h("label", { id: "lanes-label", for: "f-lanes", text: `Conexões paralelas por envio: ${d.draft.lanes}` }),
         h("input", { id: "f-lanes", type: "range", min: "1", max: "8", value: String(d.draft.lanes), disabled: d.saving, oninput: (e) => { typing("lanes")(e); $("lanes-label").textContent = `Conexões paralelas por envio: ${d.draft.lanes}`; } }),
         h("p", { class: "hint", text: "Mais conexões aproveitam melhor a rede; 4 serve para a maioria." })),
-      h("div", { class: "field" }, h("span", { class: "label", text: "Atualizações" }),
-        h("p", { class: "hint", text: "O app procura versões novas no GitHub ao iniciar." })),
       h("div", { class: "field" }, h("span", { class: "label", text: "Sair" }),
         h("button", { class: "btn danger", text: "Encerrar o RenanDrop", onclick: () => call("quit") }),
         h("p", { class: "hint", text: "Fechar a janela só a esconde; o app continua recebendo pela bandeja." }))),
     h("div", { class: "drawer-foot" },
       h("button", { class: "btn", text: "Cancelar", disabled: d.saving, onclick: requestCloseSettings }),
       h("button", { class: "btn primary", id: "save-btn", text: d.saving ? "Salvando…" : "Salvar", disabled: d.saving || !dirty(), onclick: saveSettings })));
-  if (focused) document.getElementById(focused)?.focus();
+  if (focused) $(focused)?.focus();
 }
 $("overlay").addEventListener("mousedown", requestCloseSettings);
 

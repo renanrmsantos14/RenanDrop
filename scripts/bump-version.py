@@ -4,7 +4,7 @@
 Chamado por scripts/build.sh antes de cada build de publicação. Mantém em sincronia
 app/version.json, app/Cargo.toml, app/tauri.conf.json e o Cargo.lock.
 """
-import json, re, subprocess, sys
+import json, re, subprocess
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo

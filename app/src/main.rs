@@ -323,9 +323,8 @@ fn show_window(app: &AppHandle) {
                         }
                         _ => return,
                     };
-                    let st = a.state::<App>();
-                    let is_drop = ev["type"] == "drop";
-                    if st.dragging.swap(over, Ordering::Relaxed) != over || is_drop {
+                    let is_drop = matches!(d, DragDropEvent::Drop { .. });
+                    if a.state::<App>().dragging.swap(over, Ordering::Relaxed) != over || is_drop {
                         let _ = a.emit("rd", ev);
                     }
                 }
@@ -417,17 +416,21 @@ fn main() {
     let exe = std::env::current_exe().unwrap_or_default();
     let ctrl_port = args.ctrl_port.unwrap_or(control::DEFAULT_PORT);
 
-    let token = control::token(&profile).unwrap_or_default();
-    let listener = match control::claim(
-        ctrl_port,
-        &control::Msg {
-            token: token.clone(),
-            paths: args.send.clone(),
+    // Sem token gravado o canal de controle fica desligado: token vazio aceitaria qualquer processo.
+    let token = control::token(&profile).ok();
+    let listener = match &token {
+        Some(t) => match control::claim(
+            ctrl_port,
+            &control::Msg {
+                token: t.clone(),
+                paths: args.send.clone(),
+            },
+        ) {
+            control::Claim::Forwarded => return,
+            control::Claim::First(l) => Some(l),
+            control::Claim::None => None,
         },
-    ) {
-        control::Claim::Forwarded => return,
-        control::Claim::First(l) => Some(l),
-        control::Claim::None => None,
+        None => None,
     };
 
     let (engine, rx) = match Engine::start(EngineOptions {
@@ -503,7 +506,7 @@ fn main() {
                     }
                 }
             });
-            if let Some(l) = listener {
+            if let (Some(l), Some(token)) = (listener, token) {
                 let h = h.clone();
                 control::serve(l, token, move |m| stage(&h, m.paths));
             }
